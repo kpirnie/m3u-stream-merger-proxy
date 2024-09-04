@@ -297,4 +297,5 @@ func calculateSortScore(s StreamInfo) float64 {
 	}
 
 	return sortScore
+
 }

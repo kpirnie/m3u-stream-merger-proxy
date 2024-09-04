@@ -161,6 +161,13 @@ func (instance *Updater) UpdateSources(ctx context.Context) {
 			storeArray = slices.Collect(storeValues)
 		}
 
+		log.Printf( "[ERROR] Store Array: %v", storeArray )
+		for i, v := range storeArray {
+			log.Printf( "[ERROR] Index: %d", i )
+			log.Printf( "[ERROR] Value: %v", v )
+			
+		}
+
 		err := db.SaveToDb(storeArray)
 		if err != nil {
 			log.Printf("Background process: Error updating M3U database: %v\n", err)
