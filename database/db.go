@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"m3u-stream-merger/utils"
 	"math"
 	"os"
@@ -20,8 +21,6 @@ type Instance struct {
 }
 
 func InitializeDb() (*Instance, error) {
-	ctx := context.Background()
-
 	addr := os.Getenv("REDIS_ADDR")
 	password := os.Getenv("REDIS_PASS")
 	db := 0
@@ -35,7 +34,7 @@ func InitializeDb() (*Instance, error) {
 		redisOptions = &redis.Options{
 			Addr:         addr,
 			DB:           db,
-			DialTimeout:  10 * time.Second,
+			DialTimeout:  1 * time.Minute,
 			ReadTimeout:  1 * time.Minute,
 			WriteTimeout: 1 * time.Minute,
 		}
@@ -44,7 +43,7 @@ func InitializeDb() (*Instance, error) {
 			Addr:         addr,
 			Password:     password,
 			DB:           db,
-			DialTimeout:  10 * time.Second,
+			DialTimeout:  1 * time.Minute,
 			ReadTimeout:  1 * time.Minute,
 			WriteTimeout: 1 * time.Minute,
 		}
@@ -52,16 +51,11 @@ func InitializeDb() (*Instance, error) {
 
 	redisInstance := redis.NewClient(redisOptions)
 
-	for {
-		err := redisInstance.Ping(ctx).Err()
-		if err == nil {
-			break
-		}
-		fmt.Printf("Error connecting to Redis: %v. Retrying...\n", err)
-		time.Sleep(2 * time.Second)
+	if err := redisInstance.Ping(context.Background()).Err(); err != nil {
+		return nil, fmt.Errorf("error connecting to Redis: %v", err)
 	}
 
-	return &Instance{Redis: redisInstance, Ctx: ctx}, nil
+	return &Instance{Redis: redisInstance, Ctx: context.Background()}, nil
 }
 
 func (db *Instance) ClearDb() error {
@@ -77,8 +71,6 @@ func (db *Instance) SaveToDb(streams []*StreamInfo) error {
 
 	pipeline := db.Redis.Pipeline()
 
-	pipeline.FlushDB(db.Ctx)
-
 	for _, s := range streams {
 		streamKey := fmt.Sprintf("stream:%s", s.Slug)
 
@@ -88,7 +80,7 @@ func (db *Instance) SaveToDb(streams []*StreamInfo) error {
 		}
 
 		if debug {
-			utils.SafeLogf("[DEBUG] Preparing to set data for stream key %s: %v\n", streamKey, s)
+			utils.SafeLogPrintf(nil, nil, "[DEBUG] Preparing to set data for stream key %s: %v\n", streamKey, s)
 		}
 
 		pipeline.Set(db.Ctx, streamKey, string(streamDataJson), 0)
@@ -97,7 +89,7 @@ func (db *Instance) SaveToDb(streams []*StreamInfo) error {
 		sortScore := calculateSortScore(*s)
 
 		if debug {
-			utils.SafeLogf("[DEBUG] Adding to sorted set with score %f and member %s\n", sortScore, streamKey)
+			utils.SafeLogPrintf(nil, nil, "[DEBUG] Adding to sorted set with score %f and member %s\n", sortScore, streamKey)
 		}
 
 		pipeline.ZAdd(db.Ctx, "streams_sorted", redis.Z{
@@ -108,7 +100,7 @@ func (db *Instance) SaveToDb(streams []*StreamInfo) error {
 
 	if len(streams) > 0 {
 		if debug {
-			utils.SafeLogln("[DEBUG] Executing pipeline...")
+			log.Println("[DEBUG] Executing pipeline...")
 		}
 
 		_, err := pipeline.Exec(db.Ctx)
@@ -117,7 +109,7 @@ func (db *Instance) SaveToDb(streams []*StreamInfo) error {
 		}
 
 		if debug {
-			utils.SafeLogln("[DEBUG] Pipeline executed successfully.")
+			log.Println("[DEBUG] Pipeline executed successfully.")
 		}
 	}
 
@@ -171,7 +163,7 @@ func (db *Instance) GetStreams() <-chan StreamInfo {
 
 		keys, err := db.Redis.ZRange(db.Ctx, "streams_sorted", 0, -1).Result()
 		if err != nil {
-			utils.SafeLogf("error retrieving streams: %v", err)
+			utils.SafeLogPrintf(nil, nil, "error retrieving streams: %v", err)
 			return
 		}
 
@@ -179,7 +171,7 @@ func (db *Instance) GetStreams() <-chan StreamInfo {
 		for _, key := range keys {
 			streamDataJson, err := db.Redis.Get(db.Ctx, key).Result()
 			if err != nil {
-				utils.SafeLogf("error retrieving stream data: %v", err)
+				utils.SafeLogPrintf(nil, nil, "error retrieving stream data: %v", err)
 				return
 			}
 
@@ -187,12 +179,12 @@ func (db *Instance) GetStreams() <-chan StreamInfo {
 
 			err = json.Unmarshal([]byte(streamDataJson), &stream)
 			if err != nil {
-				utils.SafeLogf("error retrieving stream data: %v", err)
+				utils.SafeLogPrintf(nil, nil, "error retrieving stream data: %v", err)
 				return
 			}
 
 			if debug {
-				utils.SafeLogf("[DEBUG] Processing stream: %v\n", stream)
+				utils.SafeLogPrintf(nil, nil, "[DEBUG] Processing stream: %v\n", stream)
 			}
 
 			// Send the stream to the channel
@@ -200,7 +192,7 @@ func (db *Instance) GetStreams() <-chan StreamInfo {
 		}
 
 		if debug {
-			utils.SafeLogln("[DEBUG] Streams retrieved successfully.")
+			log.Println("[DEBUG] Streams retrieved successfully.")
 		}
 	}()
 
@@ -305,4 +297,5 @@ func calculateSortScore(s StreamInfo) float64 {
 	}
 
 	return sortScore
+
 }
